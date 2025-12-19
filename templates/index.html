@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>R-Simple Interpreter</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500&family=Inter:wght@400;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/static/style.css" />
+  </head>
+  <body>
+    <div class="container">
+      <header>
+        <div class="logo">
+          <span class="r-logo">R</span>
+          <h1>Simple Interpreter</h1>
+        </div>
+      </header>
+
+      <main class="workspace">
+        <section class="editor-pane">
+          <div class="pane-header">
+            <h2>Script Editor</h2>
+            <div class="controls">
+              <input type="file" id="file-input" accept=".R,.r,.txt" style="display: none;">
+              <button id="import-btn" class="btn secondary">Import Script</button>
+              <button id="reset-btn" class="btn secondary">Reset Env</button>
+              <button id="run-btn" class="btn primary">Run Code</button>
+            </div>
+          </div>
+          <div class="editor-wrapper">
+            <div class="line-numbers" id="line-numbers">1</div>
+            <textarea
+              id="code-input"
+              spellcheck="false"
+              placeholder="# Type your R code here...
+x <- 10
+y <- 20
+print(x + y)"
+            ></textarea>
+          </div>
+        </section>
+
+        <section class="output-pane">
+          <div class="pane-header">
+            <h2>Console Output</h2>
+            <button id="clear-console" class="btn text-btn">Clear</button>
+          </div>
+          <div class="console" id="console-output">
+            <div class="log-entry system">
+              R-Simple Interpreter v1.0.0 is ready.
+            </div>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <script>
+      const codeInput = document.getElementById("code-input");
+      const lineNumbers = document.getElementById("line-numbers");
+      const runBtn = document.getElementById("run-btn");
+      const resetBtn = document.getElementById("reset-btn");
+      const consoleOutput = document.getElementById("console-output");
+      const clearConsoleBtn = document.getElementById("clear-console");
+      const importBtn = document.getElementById('import-btn');
+      const fileInput = document.getElementById('file-input');
+
+      // Line numbers logic
+      const updateLineNumbers = () => {
+             const lines = codeInput.value.split('\n').length;
+             lineNumbers.innerHTML = Array(lines).fill(0).map((_, i) => i + 1).join('<br>');
+        };
+
+      codeInput.addEventListener("input", updateLineNumbers);
+
+      codeInput.addEventListener("scroll", () => {
+        lineNumbers.scrollTop = codeInput.scrollTop;
+      });
+
+      // Import Script Logic
+      importBtn.addEventListener('click', () => {
+          fileInput.click();
+      });
+
+      fileInput.addEventListener('change', (e) => {
+          const file = e.target.files[0];
+          if (!file) return;
+
+          const reader = new FileReader();
+          reader.onload = (e) => {
+              codeInput.value = e.target.result;
+              updateLineNumbers();
+              appendOutput(`Loaded script: ${file.name}`, 'system');
+              // Reset file input so same file can be selected again if needed
+              fileInput.value = ''; 
+          };
+          reader.readAsText(file);
+      });
+
+      const appendOutput = (text, type = "normal") => {
+        const entry = document.createElement("div");
+        entry.className = `log-entry ${type}`;
+        entry.textContent = text;
+        consoleOutput.appendChild(entry);
+        consoleOutput.scrollTop = consoleOutput.scrollHeight;
+      };
+
+      runBtn.addEventListener("click", async () => {
+        const code = codeInput.value;
+        if (!code.trim()) return;
+
+        runBtn.disabled = true;
+        runBtn.textContent = "Running...";
+
+        try {
+          const response = await fetch("/run", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ code }),
+          });
+          const data = await response.json();
+
+          if (data.error) {
+            appendOutput(`Error: ${data.error}`, "error");
+          } else if (data.output) {
+            // Split logs if multiple lines
+            const lines = data.output.split("\n");
+            lines.forEach((line) => appendOutput(line));
+          } else {
+            // No output usually means assignments only
+          }
+        } catch (err) {
+          appendOutput(`System Error: ${err.message}`, "error");
+        } finally {
+          runBtn.disabled = false;
+          runBtn.textContent = "Run Code";
+        }
+      });
+
+      resetBtn.addEventListener("click", async () => {
+        try {
+          await fetch("/reset", { method: "POST" });
+          appendOutput("Environment reset successfully.", "system");
+        } catch (err) {
+          appendOutput("Failed to reset environment.", "error");
+        }
+      });
+
+      clearConsoleBtn.addEventListener("click", () => {
+        consoleOutput.innerHTML =
+          '<div class="log-entry system">Console cleared.</div>';
+      });
+
+        // Auto-close and Tab support
+        codeInput.addEventListener('keydown', function(e) {
+            const start = this.selectionStart;
+            const end = this.selectionEnd;
+            const val = this.value;
+
+            // Tab support
+            if (e.key === 'Tab') {
+                e.preventDefault();
+                this.value = val.substring(0, start) + "\t" + val.substring(end);
+                this.selectionStart = this.selectionEnd = start + 1;
+                return;
+            }
+
+            // Auto-close (
+            if (e.key === '(') {
+                e.preventDefault();
+                this.value = val.substring(0, start) + "()" + val.substring(end);
+                this.selectionStart = this.selectionEnd = start + 1;
+                return;
+            }
+            
+            // Auto-close {
+            if (e.key === '{') {
+                e.preventDefault();
+                this.value = val.substring(0, start) + "{}" + val.substring(end);
+                this.selectionStart = this.selectionEnd = start + 1;
+                return;
+            }
+
+            // Handle "
+            if (e.key === '"') {
+                // If the next char is ", just jump over
+                if (val.charAt(start) === '"') {
+                     e.preventDefault();
+                     this.selectionStart = this.selectionEnd = start + 1;
+                } else {
+                     // Auto-close "
+                     e.preventDefault();
+                     this.value = val.substring(0, start) + '""' + val.substring(end);
+                     this.selectionStart = this.selectionEnd = start + 1;
+                }
+                return;
+            }
+
+            // Skip closing ) if typed
+            if (e.key === ')') {
+                if (val.charAt(start) === ')') {
+                    e.preventDefault();
+                    this.selectionStart = this.selectionEnd = start + 1;
+                    return;
+                }
+            }
+
+            // Skip closing } if typed
+            if (e.key === '}') {
+                if (val.charAt(start) === '}') {
+                    e.preventDefault();
+                    this.selectionStart = this.selectionEnd = start + 1;
+                    return;
+                }
+            }
+        });
+
+    </script>
+  </body>
+</html>
